@@ -25,7 +25,7 @@ export EDK2_BUILD_FLAGS=" \
 cp -a bdy-g98-dts/rk3588-bdy-g98.dtb devicetree/vendor/
 
 ./build.sh --clean
-./build.sh --device bdy-g98 --release Release --edk2-flags "${EDK2_BUILD_FLAGS}"
+./build.sh --device bdy-g98 --release Debug --edk2-flags "${EDK2_BUILD_FLAGS}"
 cp -a RK3588_NOR_FLASH.img BDY_G98_UEFI.img
 
 TIMESTAMP=$(date +%Y%m%d)
