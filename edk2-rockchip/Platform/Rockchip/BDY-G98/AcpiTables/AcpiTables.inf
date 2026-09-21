@@ -3,7 +3,7 @@
 #  ACPI table data and ASL sources required to boot the platform.
 #
 #  Copyright (c) 2019-2021, ARM Limited. All rights reserved.
-#  Copyright (c) Microsoft Corporation. All rights reserved.
+#  Copyright (c) 2026, Phoenix Project
 #
 #  SPDX-License-Identifier: BSD-2-Clause-Patent
 #
@@ -12,16 +12,10 @@
 [Defines]
   INF_VERSION                    = 0x0001001A
   BASE_NAME                      = AcpiTables
-  FILE_GUID                      = 7E374E25-8E01-4FEE-87F2-390C23C606CD
+  FILE_GUID                      = B1C2D3E4-F5A6-7890-1234-567890ABCDEF
   MODULE_TYPE                    = USER_DEFINED
   VERSION_STRING                 = 1.0
   RK_COMMON_ACPI_DIR             = Silicon/Rockchip/RK3588/AcpiTables
-
-#
-# The following information is for reference only and not required by the build tools.
-#
-#  VALID_ARCHITECTURES           = AARCH64
-#
 
 [Sources]
   Dsdt.asl

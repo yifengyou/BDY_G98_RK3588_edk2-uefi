@@ -1,7 +1,27 @@
 /** @file
 *
+*  Phoenix RK3588 Platform Library
+*
+*  Board-specific GPIO, PMIC, PCIe, USB, and GMAC configuration.
+*
+*  Hardware summary:
+*    - Dual NVMe via PCIe 3.0 NANBNB (pcie3x4 = 2 lanes, pcie3x2 = 2 lanes)
+*    - Dual GMAC with fixed-link to YT9215S DSA switches
+*    - USB 2.0 host only (EHCI/OHCI)
+*    - SPI NOR flash on fspim0
+*    - Headless (no HDMI/DP)
+*
+*  GPIO map (from Phoenix DTS):
+*    PCIe 3.0 power enable:  GPIO2_PB6
+*    PCIe 3x4 reset:         GPIO4_PB6
+*    PCIe 3x2 reset:         GPIO3_PD4
+*    USB host power:          GPIO3_PD5
+*    GMAC0 PHY reset:         GPIO3_PD0
+*    GMAC1 PHY reset:         GPIO4_PB3
+*
 *  Copyright (c) 2021, Rockchip Limited. All rights reserved.
-*  Copyright (c) 2023-2024, Mario Bălănică <mariobalanica02@gmail.com>
+*  Copyright (c) 2023-2024, Mario Balanica <mariobalanica02@gmail.com>
+*  Copyright (c) 2026, Phoenix Project
 *
 *  SPDX-License-Identifier: BSD-2-Clause-Patent
 *
@@ -11,6 +31,7 @@
 #include <Library/DebugLib.h>
 #include <Library/IoLib.h>
 #include <Library/GpioLib.h>
+#include <Library/TimerLib.h>
 #include <Library/RK806.h>
 #include <Library/Rk3588Pcie.h>
 #include <Soc.h>
@@ -22,7 +43,6 @@ static struct regulator_init_data  rk806_init_data[] = {
   RK8XX_VOLTAGE_INIT (MASTER_BUCK3,  750000),
   RK8XX_VOLTAGE_INIT (MASTER_BUCK4,  750000),
   RK8XX_VOLTAGE_INIT (MASTER_BUCK5,  850000),
-  // RK8XX_VOLTAGE_INIT(MASTER_BUCK6, 750000),
   RK8XX_VOLTAGE_INIT (MASTER_BUCK7,  2000000),
   RK8XX_VOLTAGE_INIT (MASTER_BUCK8,  3300000),
   RK8XX_VOLTAGE_INIT (MASTER_BUCK10, 1800000),
@@ -39,8 +59,6 @@ static struct regulator_init_data  rk806_init_data[] = {
   RK8XX_VOLTAGE_INIT (MASTER_PLDO4,  3300000),
   RK8XX_VOLTAGE_INIT (MASTER_PLDO5,  3300000),
   RK8XX_VOLTAGE_INIT (MASTER_PLDO6,  1800000),
-
-  /* No dual PMICs on this platform */
 };
 
 VOID
@@ -50,9 +68,9 @@ SdmmcIoMux (
   )
 {
   /* sdmmc0 iomux (microSD socket) */
-  BUS_IOC->GPIO4D_IOMUX_SEL_L  = (0xFFFFUL << 16) | (0x1111); // SDMMC_D0,SDMMC_D1,SDMMC_D2,SDMMC_D3
-  BUS_IOC->GPIO4D_IOMUX_SEL_H  = (0x00FFUL << 16) | (0x0011); // SDMMC_CLK,SDMMC_CMD
-  PMU1_IOC->GPIO0A_IOMUX_SEL_H = (0x000FUL << 16) | (0x0001); // SDMMC_DET
+  BUS_IOC->GPIO4D_IOMUX_SEL_L  = (0xFFFFUL << 16) | (0x1111);
+  BUS_IOC->GPIO4D_IOMUX_SEL_H  = (0x00FFUL << 16) | (0x0011);
+  PMU1_IOC->GPIO0A_IOMUX_SEL_H = (0x000FUL << 16) | (0x0001);
 }
 
 VOID
@@ -61,10 +79,10 @@ SdhciEmmcIoMux (
   VOID
   )
 {
-  /* sdhci0 iomux (eMMC socket) */
-  BUS_IOC->GPIO2A_IOMUX_SEL_L = (0xFFFFUL << 16) | (0x1111); // EMMC_CMD,EMMC_CLKOUT,EMMC_DATASTROBE,EMMC_RSTN
-  BUS_IOC->GPIO2D_IOMUX_SEL_L = (0xFFFFUL << 16) | (0x1111); // EMMC_D0,EMMC_D1,EMMC_D2,EMMC_D3
-  BUS_IOC->GPIO2D_IOMUX_SEL_H = (0xFFFFUL << 16) | (0x1111); // EMMC_D4,EMMC_D5,EMMC_D6,EMMC_D7
+  /* sdhci0 iomux (eMMC) */
+  BUS_IOC->GPIO2A_IOMUX_SEL_L = (0xFFFFUL << 16) | (0x1111);
+  BUS_IOC->GPIO2D_IOMUX_SEL_L = (0xFFFFUL << 16) | (0x1111);
+  BUS_IOC->GPIO2D_IOMUX_SEL_H = (0xFFFFUL << 16) | (0x1111);
 }
 
 #define NS_CRU_BASE       0xFD7C0000
@@ -77,9 +95,7 @@ Rk806SpiIomux (
   VOID
   )
 {
-  /* io mux */
-  // BUS_IOC->GPIO1A_IOMUX_SEL_H = (0xFFFFUL << 16) | 0x8888;
-  // BUS_IOC->GPIO1B_IOMUX_SEL_L = (0x000FUL << 16) | 0x0008;
+  /* io mux for RK806 PMIC SPI */
   PMU1_IOC->GPIO0A_IOMUX_SEL_H = (0x0FF0UL << 16) | 0x0110;
   PMU1_IOC->GPIO0B_IOMUX_SEL_L = (0xF0FFUL << 16) | 0x1011;
   MmioWrite32 (NS_CRU_BASE + CRU_CLKSEL_CON59, (0x00C0UL << 16) | 0x0080);
@@ -95,7 +111,7 @@ Rk806Configure (
 
   RK806Init ();
 
-  RK806PinSetFunction (MASTER, 1, 2); // rk806_dvs1_pwrdn
+  RK806PinSetFunction (MASTER, 1, 2);
 
   for (RegCfgIndex = 0; RegCfgIndex < ARRAY_SIZE (rk806_init_data); RegCfgIndex++) {
     RK806RegulatorInit (rk806_init_data[RegCfgIndex]);
@@ -120,28 +136,19 @@ NorFspiIomux (
   VOID
   )
 {
-  /* io mux */
+  /*
+   * Phoenix uses FSPI M0 (fspim0) for SPI NOR flash.
+   * This matches the U-Boot DTS: pinctrl-0 = <&fspim0_pins>
+   */
   MmioWrite32 (
     NS_CRU_BASE + CRU_CLKSEL_CON78,
     (((0x3 << 12) | (0x3f << 6)) << 16) | (0x0 << 12) | (0x3f << 6)
     );
-  #define FSPI_M1
- #if defined (FSPI_M0)
-  /*FSPI M0*/
-  BUS_IOC->GPIO2A_IOMUX_SEL_L = ((0xF << 0) << 16) | (2 << 0);   // FSPI_CLK_M0
-  BUS_IOC->GPIO2D_IOMUX_SEL_L = (0xFFFFUL << 16) | (0x2222);     // FSPI_D0_M0,FSPI_D1_M0,FSPI_D2_M0,FSPI_D3_M0
-  BUS_IOC->GPIO2D_IOMUX_SEL_H = ((0xF << 8) << 16) | (0x2 << 8); // FSPI_CS0N_M0
- #elif defined (FSPI_M1)
-  /*FSPI M1*/
-  BUS_IOC->GPIO2A_IOMUX_SEL_H = (0xFF00UL << 16) | (0x3300); // FSPI_D0_M1,FSPI_D1_M1
-  BUS_IOC->GPIO2B_IOMUX_SEL_L = (0xF0FFUL << 16) | (0x3033); // FSPI_D2_M1,FSPI_D3_M1,FSPI_CLK_M1
-  BUS_IOC->GPIO2B_IOMUX_SEL_H = (0xF << 16) | (0x3);         // FSPI_CS0N_M1
- #else
-  /*FSPI M2*/
-  BUS_IOC->GPIO3A_IOMUX_SEL_L = (0xFFFFUL << 16) | (0x5555); // [FSPI_D0_M2-FSPI_D3_M2]
-  BUS_IOC->GPIO3A_IOMUX_SEL_H = (0xF0UL << 16) | (0x50);     // FSPI_CLK_M2
-  BUS_IOC->GPIO3C_IOMUX_SEL_H = (0xF << 16) | (0x2);         // FSPI_CS0_M2
- #endif
+
+  /* FSPI M0 */
+  BUS_IOC->GPIO2A_IOMUX_SEL_L = ((0xF << 0) << 16) | (2 << 0);
+  BUS_IOC->GPIO2D_IOMUX_SEL_L = (0xFFFFUL << 16) | (0x2222);
+  BUS_IOC->GPIO2D_IOMUX_SEL_H = ((0xF << 8) << 16) | (0x2 << 8);
 }
 
 VOID
@@ -150,7 +157,34 @@ GmacIomux (
   IN UINT32  Id
   )
 {
-  /* No GMAC here */
+  switch (Id) {
+    case 0:
+      /* GMAC0 RGMII iomux */
+      BUS_IOC->GPIO4A_IOMUX_SEL_L = (0xFFFFUL << 16) | (0x1111);
+      BUS_IOC->GPIO4A_IOMUX_SEL_H = (0xFFFFUL << 16) | (0x1111);
+      BUS_IOC->GPIO4B_IOMUX_SEL_L = (0x0FFFUL << 16) | (0x0111);
+      BUS_IOC->GPIO2B_IOMUX_SEL_H = (0x0FF0UL << 16) | (0x0110);
+      BUS_IOC->GPIO2C_IOMUX_SEL_L = (0xFFFFUL << 16) | (0x1111);
+
+      /* GMAC0 PHY reset pin: GPIO3_PD0, configure as output */
+      GpioPinSetDirection (3, GPIO_PIN_PD0, GPIO_PIN_OUTPUT);
+      break;
+
+    case 1:
+      /* GMAC1 RGMII iomux */
+      BUS_IOC->GPIO3B_IOMUX_SEL_L = (0xFFFFUL << 16) | (0x1111);
+      BUS_IOC->GPIO3B_IOMUX_SEL_H = (0xFFFFUL << 16) | (0x1111);
+      BUS_IOC->GPIO3C_IOMUX_SEL_L = (0x0FFFUL << 16) | (0x0111);
+      BUS_IOC->GPIO3A_IOMUX_SEL_H = (0x0FF0UL << 16) | (0x0110);
+      BUS_IOC->GPIO3A_IOMUX_SEL_L = (0xFFFFUL << 16) | (0x1111);
+
+      /* GMAC1 PHY reset pin: GPIO4_PB3, configure as output */
+      GpioPinSetDirection (4, GPIO_PIN_PB3, GPIO_PIN_OUTPUT);
+      break;
+
+    default:
+      break;
+  }
 }
 
 VOID
@@ -166,34 +200,35 @@ NorFspiEnableClock (
 
 VOID
 EFIAPI
+GmacIoPhyReset (
+  IN UINT32   Id,
+  IN BOOLEAN  Enable
+  )
+{
+  switch (Id) {
+    case 0:
+      /* GMAC0 PHY reset: GPIO3_PD0, active low */
+      GpioPinWrite (3, GPIO_PIN_PD0, !Enable);
+      break;
+    case 1:
+      /* GMAC1 PHY reset: GPIO4_PB3, active low */
+      GpioPinWrite (4, GPIO_PIN_PB3, !Enable);
+      break;
+    default:
+      break;
+  }
+}
+
+VOID
+EFIAPI
 I2cIomux (
   UINT32  id
   )
 {
   switch (id) {
     case 0:
-      GpioPinSetFunction (0, GPIO_PIN_PD1, 3); // i2c0_scl_m2
-      GpioPinSetFunction (0, GPIO_PIN_PD2, 3); // i2c0_sda_m2
-      break;
-    case 1:
-      break;
-    case 2:
-      GpioPinSetFunction (0, GPIO_PIN_PB7, 9); // i2c2_scl_m0
-      GpioPinSetFunction (0, GPIO_PIN_PC0, 9); // i2c2_sda_m0
-      break;
-    case 3:
-      GpioPinSetFunction (1, GPIO_PIN_PC1, 9); // i2c3_scl_m0
-      GpioPinSetFunction (1, GPIO_PIN_PC0, 9); // i2c3_sda_m0
-      break;
-    case 4:
-      break;
-    case 5:
-      break;
-    case 6:
-      GpioPinSetFunction (0, GPIO_PIN_PD0, 9); // i2c6_scl_m0
-      GpioPinSetFunction (0, GPIO_PIN_PC7, 9); // i2c6_sda_m0
-      break;
-    case 7:
+      GpioPinSetFunction (0, GPIO_PIN_PD1, 3);
+      GpioPinSetFunction (0, GPIO_PIN_PD2, 3);
       break;
     default:
       break;
@@ -206,25 +241,14 @@ UsbPortPowerEnable (
   VOID
   )
 {
-  DEBUG ((DEBUG_INFO, "UsbPortPowerEnable called\n"));
-  /* Set GPIO4 PB0 (USB_HOST_PWREN) output high to power USB ports */
-  GpioPinWrite (4, GPIO_PIN_PB0, TRUE);
-  GpioPinSetDirection (4, GPIO_PIN_PB0, GPIO_PIN_OUTPUT);
+  DEBUG ((DEBUG_INFO, "Phoenix: UsbPortPowerEnable\n"));
 
-  /* Set GPIO4 PC6 output high to power the 4G/LTE module */
-  GpioPinWrite (4, GPIO_PIN_PC6, TRUE);
-  GpioPinSetDirection (4, GPIO_PIN_PC6, GPIO_PIN_OUTPUT);
-
-  /* Set GPIO1 PD2 (TYPEC5V_PWREN) output high to power the type-c port */
-  GpioPinWrite (1, GPIO_PIN_PD2, TRUE);
-  GpioPinSetDirection (1, GPIO_PIN_PD2, GPIO_PIN_OUTPUT);
-
-  /* Set GPIO1 PA4 (USB20_HOST_PWREN) output high to power USB 2.0 ports */
-  GpioPinWrite (1, GPIO_PIN_PA4, TRUE);
-  GpioPinSetDirection (1, GPIO_PIN_PA4, GPIO_PIN_OUTPUT);
-  // DEBUG((DEBUG_INFO, "Trying to enable on-board LED1\n"));
-  // GpioPinWrite (2, GPIO_PIN_PC0, TRUE);
-  // GpioPinSetDirection (2, GPIO_PIN_PC0, GPIO_PIN_OUTPUT);
+  /*
+   * USB host power: GPIO3_PD5 (vcc5v0_host)
+   * From Phoenix DTS: enable-active-high, gpio = <&gpio3 RK_PD5>
+   */
+  GpioPinWrite (3, GPIO_PIN_PD5, TRUE);
+  GpioPinSetDirection (3, GPIO_PIN_PD5, GPIO_PIN_OUTPUT);
 }
 
 VOID
@@ -233,6 +257,7 @@ Usb2PhyResume (
   VOID
   )
 {
+  /* Resume all USB 2.0 PHYs */
   MmioWrite32 (0xfd5d0008, 0x20000000);
   MmioWrite32 (0xfd5d4008, 0x20000000);
   MmioWrite32 (0xfd5d8008, 0x20000000);
@@ -247,22 +272,26 @@ PcieIoInit (
   UINT32  Segment
   )
 {
-  /* Set reset and power IO to gpio output mode */
   switch (Segment) {
     case PCIE_SEGMENT_PCIE30X4:
+      /*
+       * PCIe 3x4 (used as 2-lane in NANBNB mode)
+       * Reset: GPIO4_PB6
+       * Power: GPIO2_PB6 (vcc3v3_pcie30, shared with 3x2)
+       */
       GpioPinSetDirection (4, GPIO_PIN_PB6, GPIO_PIN_OUTPUT);
-      GpioPinSetDirection (2, GPIO_PIN_PC5, GPIO_PIN_OUTPUT);
+      GpioPinSetDirection (2, GPIO_PIN_PB6, GPIO_PIN_OUTPUT);
       break;
-    case PCIE_SEGMENT_PCIE20L0: // rtl8152b
-      GpioPinSetDirection (4, GPIO_PIN_PB3, GPIO_PIN_OUTPUT);
+
+    case PCIE_SEGMENT_PCIE30X2:
+      /*
+       * PCIe 3x2 (used as 2-lane in NANBNB mode)
+       * Reset: GPIO3_PD4
+       * Power: shared vcc3v3_pcie30
+       */
+      GpioPinSetDirection (3, GPIO_PIN_PD4, GPIO_PIN_OUTPUT);
       break;
-    case PCIE_SEGMENT_PCIE20L1: // m.2 a+e key
-      GpioPinSetDirection (4, GPIO_PIN_PC2, GPIO_PIN_OUTPUT);
-      GpioPinSetDirection (4, GPIO_PIN_PA2, GPIO_PIN_OUTPUT);
-      break;
-    case PCIE_SEGMENT_PCIE20L2: // rtl8152b
-      GpioPinSetDirection (4, GPIO_PIN_PA4, GPIO_PIN_OUTPUT);
-      break;
+
     default:
       break;
   }
@@ -275,19 +304,16 @@ PciePowerEn (
   BOOLEAN  Enable
   )
 {
-  /* output high to enable power */
-
   switch (Segment) {
     case PCIE_SEGMENT_PCIE30X4:
-      GpioPinWrite (2, GPIO_PIN_PC5, Enable);
+      /* vcc3v3_pcie30: GPIO2_PB6, active high */
+      GpioPinWrite (2, GPIO_PIN_PB6, Enable);
       break;
-    case PCIE_SEGMENT_PCIE20L0:
+
+    case PCIE_SEGMENT_PCIE30X2:
+      /* Shares the same vcc3v3_pcie30 regulator, already enabled by 3x4 */
       break;
-    case PCIE_SEGMENT_PCIE20L1:
-      GpioPinWrite (4, GPIO_PIN_PC2, Enable);
-      break;
-    case PCIE_SEGMENT_PCIE20L2:
-      break;
+
     default:
       break;
   }
@@ -302,17 +328,15 @@ PciePeReset (
 {
   switch (Segment) {
     case PCIE_SEGMENT_PCIE30X4:
+      /* Reset: GPIO4_PB6, active high in DTS -> invert for PERST# */
       GpioPinWrite (4, GPIO_PIN_PB6, !Enable);
       break;
-    case PCIE_SEGMENT_PCIE20L0:
-      GpioPinWrite (4, GPIO_PIN_PB3, !Enable);
+
+    case PCIE_SEGMENT_PCIE30X2:
+      /* Reset: GPIO3_PD4 */
+      GpioPinWrite (3, GPIO_PIN_PD4, !Enable);
       break;
-    case PCIE_SEGMENT_PCIE20L1:
-      GpioPinWrite (4, GPIO_PIN_PA2, !Enable);
-      break;
-    case PCIE_SEGMENT_PCIE20L2:
-      GpioPinWrite (4, GPIO_PIN_PA4, !Enable);
-      break;
+
     default:
       break;
   }
@@ -324,28 +348,7 @@ HdmiTxIomux (
   IN UINT32  Id
   )
 {
-  switch (Id) {
-    case 0:
-      GpioPinSetFunction (4, GPIO_PIN_PC1, 5); // hdmim0_tx0_cec
-      GpioPinSetPull (4, GPIO_PIN_PC1, GPIO_PIN_PULL_NONE);
-      GpioPinSetFunction (1, GPIO_PIN_PA5, 5); // hdmim0_tx0_hpd
-      GpioPinSetPull (1, GPIO_PIN_PA5, GPIO_PIN_PULL_NONE);
-      GpioPinSetFunction (4, GPIO_PIN_PB7, 5); // hdmim0_tx0_scl
-      GpioPinSetPull (4, GPIO_PIN_PB7, GPIO_PIN_PULL_NONE);
-      GpioPinSetFunction (4, GPIO_PIN_PC0, 5); // hdmim0_tx0_sda
-      GpioPinSetPull (4, GPIO_PIN_PC0, GPIO_PIN_PULL_NONE);
-      break;
-    case 1:
-      GpioPinSetFunction (3, GPIO_PIN_PC4, 5); // hdmim2_tx1_cec
-      GpioPinSetPull (3, GPIO_PIN_PC4, GPIO_PIN_PULL_NONE);
-      GpioPinSetFunction (1, GPIO_PIN_PA6, 5); // hdmim0_tx1_hpd
-      GpioPinSetPull (1, GPIO_PIN_PA6, GPIO_PIN_PULL_NONE);
-      GpioPinSetFunction (3, GPIO_PIN_PC6, 5); // hdmim1_tx1_scl
-      GpioPinSetPull (3, GPIO_PIN_PC6, GPIO_PIN_PULL_NONE);
-      GpioPinSetFunction (3, GPIO_PIN_PC5, 5); // hdmim1_tx1_sda
-      GpioPinSetPull (3, GPIO_PIN_PC5, GPIO_PIN_PULL_NONE);
-      break;
-  }
+  /* Phoenix is headless - no HDMI */
 }
 
 VOID
@@ -354,6 +357,7 @@ PwmFanIoSetup (
   VOID
   )
 {
+  /* No PWM fan on Phoenix */
 }
 
 VOID
@@ -362,6 +366,7 @@ PwmFanSetSpeed (
   IN UINT32  Percentage
   )
 {
+  /* No PWM fan on Phoenix */
 }
 
 VOID
@@ -370,9 +375,7 @@ PlatformInitLeds (
   VOID
   )
 {
-  /* Status indicator */
-  GpioPinWrite (2, GPIO_PIN_PB7, FALSE);
-  GpioPinSetDirection (2, GPIO_PIN_PB7, GPIO_PIN_OUTPUT);
+  /* No status LED defined for Phoenix */
 }
 
 VOID
@@ -381,7 +384,7 @@ PlatformSetStatusLed (
   IN BOOLEAN  Enable
   )
 {
-  GpioPinWrite (2, GPIO_PIN_PB7, Enable);
+  /* No status LED defined for Phoenix */
 }
 
 CONST EFI_GUID *
@@ -392,18 +395,12 @@ PlatformGetDtbFileGuid (
 {
   STATIC CONST EFI_GUID  VendorDtbFileGuid = {
     // DeviceTree/Vendor.inf
-    0xd58b4028, 0x43d8, 0x4e97, { 0x87, 0xd4, 0x4e, 0x37, 0x16, 0x13, 0x65, 0x80 }
-  };
-  STATIC CONST EFI_GUID  MainlineDtbFileGuid = {
-    // DeviceTree/Mainline.inf
-    0x84492e97, 0xa10f, 0x49a7, { 0x85, 0xe9, 0x02, 0x5d, 0x19, 0x66, 0xb3, 0x43 }
+    0xAABBCC01, 0x1234, 0x5678, { 0x9A, 0xBC, 0xDE, 0xF0, 0x12, 0x34, 0x56, 0x78 }
   };
 
   switch (CompatMode) {
     case FDT_COMPAT_MODE_VENDOR:
       return &VendorDtbFileGuid;
-    case FDT_COMPAT_MODE_MAINLINE:
-      return &MainlineDtbFileGuid;
   }
 
   return NULL;
@@ -415,6 +412,5 @@ PlatformEarlyInit (
   VOID
   )
 {
-  // Configure various things specific to this platform
-  GpioPinSetFunction (1, GPIO_PIN_PC4, 0); // jdet
+  /* Phoenix-specific early init */
 }

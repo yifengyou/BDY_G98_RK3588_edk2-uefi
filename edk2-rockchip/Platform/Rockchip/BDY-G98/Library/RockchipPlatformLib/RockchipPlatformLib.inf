@@ -1,7 +1,8 @@
 #/** @file
 #
 #  Copyright (c) 2021, Rockchip Limited. All rights reserved.
-#  Copyright (c) 2023-2024, Mario Bălănică <mariobalanica02@gmail.com>
+#  Copyright (c) 2023-2024, Mario Balanica <mariobalanica02@gmail.com>
+#  Copyright (c) 2026, Phoenix Project
 #
 #  SPDX-License-Identifier: BSD-2-Clause-Patent
 #
@@ -10,7 +11,7 @@
 [Defines]
   INF_VERSION                    = 0x00010019
   BASE_NAME                      = RockchipPlatformLib
-  FILE_GUID                      = 5178fa86-2fec-11ec-95b4-f42a7dcb925d
+  FILE_GUID                      = 12345678-AAAA-BBBB-CCCC-DDDDEEEEFFFF
   MODULE_TYPE                    = BASE
   VERSION_STRING                 = 1.0
   LIBRARY_CLASS                  = RockchipPlatformLib
@@ -30,6 +31,7 @@
   SerialPortLib
   CruLib
   GpioLib
+  TimerLib
 
 [Sources.common]
   RockchipPlatformLib.c
