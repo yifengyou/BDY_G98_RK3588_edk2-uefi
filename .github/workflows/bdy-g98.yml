@@ -51,7 +51,7 @@ jobs:
         uses: ncipollo/release-action@main
         with:
           tag: bdy-g98-edk2-uefi
-          artifacts: ./release/RK3588*
+          artifacts: ./release/BDY_G98_*
           allowUpdates: true
           removeArtifacts: false
           replacesArtifacts: true
