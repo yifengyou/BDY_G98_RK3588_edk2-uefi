@@ -2,7 +2,11 @@
 
 set -xe
 
-mkdir keys
+
+TIMESTAMP=$(date +%Y%m%d)
+CUSTOM_FIRMWARE_VER="v1.1-22_yifengyou-${TIMESTAMP}"
+
+mkdir -p keys
 # We don't really need a usable PK, so just generate a public key for it and discard the private key
 openssl req -new -x509 -newkey rsa:2048 -subj "/CN=Rockchip Platform Key/" -keyout /dev/null -outform DER -out keys/pk.cer -days 7300 -nodes -sha256
 curl -L https://go.microsoft.com/fwlink/?LinkId=321185 -o keys/ms_kek.cer
@@ -20,14 +24,14 @@ export EDK2_SECUREBOOT_FLAGS=" \
   -D SECURE_BOOT_ENABLE=TRUE"
 
 export EDK2_BUILD_FLAGS=" \
-  ${EDK2_SECUREBOOT_FLAGS}"
+  ${EDK2_SECUREBOOT_FLAGS} \
+  -D FIRMWARE_VER=${CUSTOM_FIRMWARE_VER}"
 
 cp -a bdy-g98-dts/rk3588-bdy-g98.dtb devicetree/vendor/
 
 ./build.sh --clean
 ./build.sh --device bdy-g98 --release Release --edk2-flags "${EDK2_BUILD_FLAGS}"
 
-TIMESTAMP=$(date +%Y%m%d)
 mkdir -p release
 sudo cp -a RK3588_NOR_FLASH.img release/RK3588_NOR_FLASH.img
 sudo cp -a RK3588_NOR_FLASH.img release/RK3588_NOR_FLASH-${TIMESTAMP}.img
