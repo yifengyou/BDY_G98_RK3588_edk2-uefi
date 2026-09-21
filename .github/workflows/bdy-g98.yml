@@ -40,7 +40,7 @@ jobs:
           libc6-dev-arm64-cross \
           python3 \
           python3-pyelftools \
-          uuid-dev
+          uuid-dev rar
 
       - name: Get version tag
         id: get_version_tag
@@ -79,12 +79,15 @@ jobs:
           mkdir -p release
           sudo cp -a RK3588_NOR_FLASH.img release/RK3588_NOR_FLASH.img
           sudo cp -a RK3588_NOR_FLASH.img release/RK3588_NOR_FLASH-${TIMESTAMP}.img
+          sudo cp -a RK3588_NOR_FLASH.img RKDevTool_Release_v3.37/
+          sudo rar a release/RK3588_NOR_FLASH_With_RKDevTool.rar                RKDevTool_Release_v3.37
+          sudo rar a release/RK3588_NOR_FLASH_With_RKDevTool-${TIMESTAMP}.rar   RKDevTool_Release_v3.37
 
       - name: Upload EDK2 UEFI to Release
         uses: ncipollo/release-action@main
         with:
           tag: bdy-g98-edk2-uefi
-          artifacts: ./release/*.img
+          artifacts: ./release/RK3588*
           allowUpdates: true
           removeArtifacts: false
           replacesArtifacts: true
