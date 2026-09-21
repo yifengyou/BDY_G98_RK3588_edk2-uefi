@@ -12,3 +12,5 @@ ramdisk
 *_FLASH.img
 /devicetree/vendor/rk3588-bdy-g98.dtb
 /edk2
+/keys
+/release
