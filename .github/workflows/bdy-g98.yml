@@ -74,13 +74,17 @@ jobs:
 
           cp -a bdy-g98-dts/rk3588-bdy-g98.dtb devicetree/vendor/
           ./build.sh --device ${{matrix.PLATFORM}} --release ${{matrix.CONFIGURATION}} --edk2-flags "${EDK2_BUILD_FLAGS}"
-          mv RK3588_NOR_FLASH.img ${{matrix.PLATFORM}}_UEFI_${{matrix.CONFIGURATION}}_${{steps.get_version_tag.outputs.version}}.img
+
+          TIMESTAMP=$(date +%Y%m%d)
+          mkdir -p release
+          sudo cp -a RK3588_NOR_FLASH.img release/RK3588_NOR_FLASH.img
+          sudo cp -a RK3588_NOR_FLASH.img release/RK3588_NOR_FLASH-${TIMESTAMP}.img
 
       - name: Upload EDK2 UEFI to Release
         uses: ncipollo/release-action@main
         with:
           tag: bdy-g98-edk2-uefi
-          artifacts: ./*.img
+          artifacts: ./release/*.img
           allowUpdates: true
           removeArtifacts: false
           replacesArtifacts: true
