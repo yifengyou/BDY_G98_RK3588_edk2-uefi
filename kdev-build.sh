@@ -5,6 +5,7 @@ set -xe
 TIMESTAMP=$(date +%Y%m%d)
 CUSTOM_FIRMWARE_VER="v1.1-28_yifengyou-${TIMESTAMP}"
 
+cp -a Logo.bmp edk2-rockchip/Platform/BDY/Drivers/LogoDxe/Logo.bmp
 mkdir -p keys release
 # We don't really need a usable PK, so just generate a public key for it and discard the private key
 openssl req -new -x509 -newkey rsa:2048 -subj "/CN=Rockchip Platform Key/" -keyout /dev/null -outform DER -out keys/pk.cer -days 7300 -nodes -sha256
