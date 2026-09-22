@@ -14,3 +14,6 @@ ramdisk
 /edk2
 /keys
 /release
+/BDY_G98_UEFI.img
+/RKDevTool_Release_v3.37/BDY_G98_UEFI.img
+

@@ -15,7 +15,7 @@
 ################################################################################
 [Defines]
   PLATFORM_NAME                  = BDY-G98
-  PLATFORM_VENDOR                = Rockchip
+  PLATFORM_VENDOR                = BDY
   PLATFORM_GUID                  = a5022309-24e1-46e0-9d40-dcbc7293e60a
   PLATFORM_VERSION               = 0.2
   DSC_SPECIFICATION              = 0x00010019
